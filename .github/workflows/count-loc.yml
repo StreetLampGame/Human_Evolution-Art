@@ -1,0 +1,24 @@
+name: Count Lines of Code
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_path:
+        description: 'Folder path to count (leave as . for whole repo)'
+        required: true
+        default: '.'
+        type: string
+
+jobs:
+  count-lines:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Count lines with cloc
+        run: |
+          sudo apt-get update && sudo apt-get install -y cloc
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cloc "${{ inputs.target_path }}" --exclude-dir=node_modules,.git,dist,build | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
