@@ -31,5 +31,5 @@ jobs:
           echo "### Path: **${{ inputs.target_path }}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cloc "${{ inputs.target_path }}" --exclude-dir=node_modules,.git,dist,build | tee -a $GITHUB_STEP_SUMMARY
+          cloc "${{ inputs.target_path }}" --force-lang=HLSL,compute --exclude-dir=node_modules,.git,dist,build | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
