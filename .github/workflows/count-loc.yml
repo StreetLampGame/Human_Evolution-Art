@@ -3,6 +3,10 @@ name: Count Lines of Code
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        description: 'Branch name to count (leave empty for default branch)'
+        required: false
+        type: string
       target_path:
         description: 'Folder path to count (leave as . for whole repo)'
         required: true
@@ -15,6 +19,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch }}
 
       - name: Count lines with cloc
         run: |
