@@ -1,15 +1,15 @@
 name: Count Lines of Code
-run-name: "LOC: ${{ inputs.branch || github.ref_name }} (${{ inputs.target_path }})"
+run-name: "Stats: ${{ inputs.branch || github.ref_name }} (${{ inputs.target_path }})"
 
 on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch name to count (leave empty for default branch)'
+        description: 'Branch name to analyze (leave empty for default branch)'
         required: false
         type: string
       target_path:
-        description: 'Folder path to count (leave as . for whole repo)'
+        description: 'Folder path to count LOC (leave as . for whole repo)'
         required: true
         default: '.'
         type: string
@@ -18,18 +18,75 @@ jobs:
   count-lines:
     runs-on: ubuntu-latest
     steps:
+      - name: Free up runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.branch }}
+          fetch-depth: 0
+          filter: blob:none
 
-      - name: Count lines with cloc
+      - name: Analyze Unity Project & Git Stats
         run: |
-          sudo apt-get update && sudo apt-get install -y cloc
+          sudo apt-get update --fix-missing && sudo apt-get install -y --fix-missing cloc jq || (sleep 5 && sudo apt-get update && sudo apt-get install -y cloc jq)
+
           BRANCH_NAME="${{ inputs.branch || github.ref_name }}"
           echo "## Branch: **$BRANCH_NAME**" >> $GITHUB_STEP_SUMMARY
-          echo "### Path: **${{ inputs.target_path }}**" >> $GITHUB_STEP_SUMMARY
+          echo "### LOC Target Path: **${{ inputs.target_path }}|*p" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Unity Project Info" >> $GITHUB_STEP_SUMMARY
+          PV_FILE=$(find . -maxdepth 4 -path "*/ProjectSettings/ProjectVersion.txt" | head -n 1)
+          if [ -n "$PV_FILE" ]; then
+            UNITY_VER=$(grep "m_EditorVersion:" "$PV_FILE" | awk '{print $2}')
+            echo "- **Unity Version:** $UNITY_VER" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Unity Version:** Not detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          TOTAL_COMMITS=$(git rev-list --count HEAD)
+          CONTRIBUTORS_COUNT=$(git log --format='%ae' | sort -u | wc -l)
+          echo "- **Total Commits:** $TOTAL_COMMITS" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Contributors:** $CONTRIBUTORS_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Contributors Breakdown:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git shortlog -sn --no-merges HEAD >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### Commit History Dates" >> $GITHUB_STEP_SUMMARY
+          echo "**First 10 Commits (Oldest):**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git log --reverse --date=format:'%Y-%m-%d %H:%M' --format='%ad | %h | %an | %s' | head -n 10 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "**Last 10 Commits (Newest):**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git log -n 10 --date=format:'%Y-%m-%d %H:%M' --format='%ad | %h | %an | %s' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### 3rd-Party SDKs & Asset Store Packages" >> $GITHUB_STEP_SUMMARY
+          MANIFEST_FILE=$(find . -maxdepth 4 -path "*/Packages/manifest.json" | head -n 1)
+          if [ -n "$MANIFEST_FILE" ]; then
+            echo "**UPM Packages (Excluding built-in Unity modules):**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            jq -r '.dependencies | to_entries[] | select(.key | startswith("com.unity.modules.") | not) | "\(.key): \(.value)"' "$MANIFEST_FILE" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          ASSETS_DIR=$(find . -maxdepth 3 -type d -name "Assets" | head -n 1)
+          if [ -n "$ASSETS_DIR" ]; then
+            echo "**Detected SDK & Asset Store Folders in Assets:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            find "$ASSETS_DIR" -mindepth 1 -maxdepth 2 -type d ! -name "*_Game*" ! -name "Game" ! -name "Scenes" ! -name "Scripts" ! -name "Prefabs" ! -name "Materials" ! -name "Textures" ! -name "Models" ! -name "Animations" ! -name "Audio" ! -name "Fonts" ! -name "Resources" ! -name "Settings" ! -name "Editor" | sort >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### Lines of Code" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cloc "${{ inputs.target_path }}" --force-lang=HLSL,compute --exclude-dir=node_modules,.git,dist,build | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
