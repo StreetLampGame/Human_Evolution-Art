@@ -1,0 +1,81 @@
+name: Unity & Git Stats
+run-name: "Repo Stats (All Branches & Latest Unity)"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  repo-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up runner disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+
+      - name: Checkout repository (treeless, full history)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Analyze Unity (Latest Branch) & Git (All Repo)
+        run: |
+          sudo apt-get update --fix-missing && sudo apt-get install -y --fix-missing jq || (sleep 5 && sudo apt-get update && sudo apt-get install -y jq)
+          git fetch --all --tags --quiet
+
+          LATEST_BRANCH=$(git for-each-ref --sort=-committerdate refs/remotes/origin/ --format='%(refname:short)' | grep -v 'origin/HEAD' | head -n 1 | sed 's|^origin/||')
+          if [ -n "$LATEST_BRANCH" ]; then
+            git checkout "$LATEST_BRANCH" --quiet
+          fi
+
+          echo "## Unity Stats Source Branch (Latest): **$LATEST_BRANCH**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Unity Project Info" >> $GITHUB_STEP_SUMMARY
+          PV_FILE=$(find . -maxdepth 4 -path "*/ProjectSettings/ProjectVersion.txt" | head -n 1)
+          if [ -n "$PV_FILE" ]; then
+            UNITY_VER=$(grep "m_EditorVersion:" "$PV_FILE" | awk '{print $2}')
+            echo "- **Unity Version:** **$UNITY_VER**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Unity Version:** Not detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          BRANCHES_COUNT=$(git branch -r | grep -v '\->' | wc -l)
+          TOTAL_COMMITS=$(git rev-list --count --all)
+          CONTRIBUTORS_COUNT=$(git log --all --format='%ae' | sort -u | wc -l)
+          echo "- **Total Branches in Repo:** $BRANCHES_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Commits (All Branches):** $TOTAL_COMMITS" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Contributors (All Branches):** $CONTRIBUTORS_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Contributors Breakdown (All Branches):**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git shortlog -sn --no-merges --all >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### Commit History Dates (All Branches)" >> $GITHUB_STEP_SUMMARY
+          echo "**First 10 Commits (Oldest):**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git log --all --reverse --date=format:'%Y-%m-%d %H:%M' --format='%ad | %h | %an | %s' | head -n 10 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "**Last 10 Commits (Newest):**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git log --all -n 10 --date=format:'%Y-%m-%d %H:%M' --format='%ad | %h | %an | %s' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### 3rd-Party SDKs & Asset Store Packages" >> $GITHUB_STEP_SUMMARY
+          MANIFEST_FILE=$(find . -maxdepth 4 -path "*/Packages/manifest.json" | head -n 1)
+          if [ -n "$MANIFEST_FILE" ]; then
+            echo "**UPM Packages (Excluding built-in Unity modules):**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            jq -r '.dependencies | to_entries[] | select(.key | startswith("com.unity.modules.") | not) | "\(.key): \(.value)"' "$MANIFEST_FILE" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          ASSETS_DIR=$(find . -maxdepth 3 -type d -name "Assets" | head -n 1)
+          if [ -n "$ASSETS_DIR" ]; then
+            echo "**Detected SDK & Asset Store Folders in Assets:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            find "$ASSETS_DIR" -mindepth 1 -maxdepth 2 -type d ! -name "*_Game*" ! -name "Game" ! -iname "Scenes" ! -iname "Scripts" ! -iname "Prefabs" ! -iname "Materials" ! -iname "Textures" ! -iname "Models" ! -iname "Animations" ! -iname "Audio" ! -iname "Fonts" ! -iname "Resources" ! -iname "Settings" ! -iname "Editor" | sort >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
